@@ -12,14 +12,34 @@ function getYouTubeId(url) {
   return (match && match[2].length === 11) ? match[2] : null;
 }
 
-// app/admin/page.js доторх TrackItem компонент хэсэг
-
 function TrackItem({ msg, currentPlayingId, setCurrentPlayingId }) {
   const [player, setPlayer] = useState(null);
+  const [videoInfo, setVideoInfo] = useState({ title: msg.description || "Уншиж байна...", thumbnail: "" });
+  const [copied, setCopied] = useState(false);
+  
   const videoId = getYouTubeId(msg.url);
   const isPlaying = currentPlayingId === msg.id;
 
-  // Тоглуулагч бэлэн болсон бөгөөд "play/pause" дарах үед л ажиллана
+  // 🎵 YouTube oEmbed API ашиглан дууны жинхэнэ нэр болон зургийг татах
+  useEffect(() => {
+    if (!msg.url) return;
+    
+    fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(msg.url)}&format=json`)
+      .then((res) => res.json())
+      .then((data) => {
+        setVideoInfo({
+          title: data.title,
+          thumbnail: data.thumbnail_url,
+        });
+      })
+      .catch((err) => {
+        console.error("oEmbed Error:", err);
+        // Хэрэв алдаа гарвал хэрэглэгчийн бичсэн тайлбарыг хэвээр үлдээнэ
+        setVideoInfo({ title: msg.description || "Дууны нэр олдсонгүй", thumbnail: "" });
+      });
+  }, [msg.url, msg.description]);
+
+  // Тоглуулагчийг удирдах хэсэг
   useEffect(() => {
     if (player) {
       try {
@@ -43,10 +63,8 @@ function TrackItem({ msg, currentPlayingId, setCurrentPlayingId }) {
       alert('Энэ YouTube линк буруу байна.');
       return;
     }
-
-    // Хэрэв тоглуулагч хараахан ачаалж дуусаагүй байвал хүлээлгэнэ
     if (!player) {
-      alert('Тоглуулагч уншиж байна, түр хүлээнэ үү...');
+      alert('Тоглуулагч бэлдэж байна, түр хүлээнэ үү...');
       return;
     }
 
@@ -57,16 +75,21 @@ function TrackItem({ msg, currentPlayingId, setCurrentPlayingId }) {
     }
   };
 
-  const onPlayerStateChange = (event) => {
-    if (event.data === 0) { // 0 гэдэг нь дуу дууссан гэсэн үг
-      setCurrentPlayingId(null);
+  // 📋 Линк хуулж авах функц
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(msg.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000); // 2 сек дараа буцаад хэвийн болно
+    } catch (err) {
+      console.error("Copy failed", err);
     }
   };
 
   return (
-    <div className="bg-slate-900/60 backdrop-blur-md p-5 md:p-6 rounded-2xl border border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all hover:border-slate-700/60">
+    <div className="bg-slate-900/60 backdrop-blur-md p-4 md:p-5 rounded-2xl border border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all hover:border-slate-700/60">
       
-      {/* ⚠️ ШИНЭЧЛЭГДСЭН ХЭСЭГ: hidden-ийг устгаад, DOM-д заавал уншигдахаар хийв */}
+      {/* Далд байгаа YouTube тоглуулагч */}
       {videoId && (
         <div className="w-0 h-0 absolute opacity-0 pointer-events-none z-[-1]">
           <YouTube
@@ -74,45 +97,99 @@ function TrackItem({ msg, currentPlayingId, setCurrentPlayingId }) {
             opts={{
               height: '0',
               width: '0',
-              playerVars: {
-                autoplay: 0,
-                controls: 0,
-                disablekb: 1,
-                fs: 0,
-              },
+              playerVars: { autoplay: 0, controls: 0, disablekb: 1, fs: 0 },
             }}
             onReady={onPlayerReady}
-            onStateChange={onPlayerStateChange}
+            onStateChange={(e) => e.data === 0 && setCurrentPlayingId(null)}
           />
         </div>
       )}
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-3 mb-1.5">
-          {isPlaying && (
-            <span className="relative flex h-3 w-3 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
-            </span>
+      {/* Зүүн тал: Дууны зураг болон мэдээлэл */}
+      <div className="flex items-center gap-4 w-full sm:w-auto min-w-0">
+        {/* Дууны Thumbnail зураг */}
+        <div className="w-16 h-16 bg-slate-800 rounded-xl overflow-hidden shrink-0 relative border border-slate-700/30 flex items-center justify-center">
+          {videoInfo.thumbnail ? (
+            <img src={videoInfo.thumbnail} alt="thumbnail" className="w-full h-full object-cover" />
+          ) : (
+            <svg className="w-6 h-6 text-slate-600 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+            </svg>
           )}
-          <p className={`font-semibold text-base md:text-lg tracking-tight truncate ${isPlaying ? 'text-indigo-400' : 'text-white'}`}>
-            {msg.description}
-          </p>
+          
+          {/* Дуу явж байх үед зурган дээр давхарлаж харагдах жижиг эффект */}
+          {isPlaying && (
+            <div className="absolute inset-0 bg-indigo-950/40 backdrop-blur-[1px] flex items-center justify-center">
+              <div className="flex gap-0.5 items-end h-4">
+                <div className="w-0.5 bg-indigo-400 animate-[bounce_1s_infinite_100ms]" style={{ height: '60%' }}></div>
+                <div className="w-0.5 bg-indigo-400 animate-[bounce_1s_infinite_300ms]" style={{ height: '100%' }}></div>
+                <div className="w-0.5 bg-indigo-400 animate-[bounce_1s_infinite_200ms]" style={{ height: '40%' }}></div>
+              </div>
+            </div>
+          )}
         </div>
-        <a 
-          href={msg.url} 
-          target="_blank" 
-          rel="noopener noreferrer" 
-          className="text-xs text-gray-500 hover:text-indigo-400 hover:underline break-all transition block"
-        >
-          {msg.url}
-        </a>
+
+        {/* Текст мэдээллүүд */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            {isPlaying && (
+              <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse shrink-0" />
+            )}
+            <h3 className={`font-bold text-sm md:text-base tracking-tight truncate ${isPlaying ? 'text-indigo-400' : 'text-white'}`}>
+              {videoInfo.title}
+            </h3>
+          </div>
+          
+          {/* Хэрэглэгчийн үлдээсэн тайлбар */}
+          {msg.description && msg.description !== videoInfo.title && (
+            <p className="text-xs text-gray-400 truncate mb-1">💬 Захиалагчийн тайлбар: {msg.description}</p>
+          )}
+
+          <a 
+            href={msg.url} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-[11px] text-gray-500 hover:text-indigo-400 hover:underline break-all transition block truncate max-w-xs md:max-w-md"
+          >
+            {msg.url}
+          </a>
+        </div>
       </div>
 
-      <div className="flex gap-2 w-full sm:w-auto shrink-0 justify-end">
+      {/* Баруун тал: Үйлдэл хийх товчлуурууд */}
+      <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end sm:border-l sm:border-slate-800 sm:pl-4">
+        
+        {/* Copy URL Товчлуур */}
+        <button
+          onClick={handleCopy}
+          className={`p-2.5 rounded-xl border text-xs font-medium transition-all duration-200 flex items-center gap-1.5 ${
+            copied 
+              ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400' 
+              : 'bg-slate-800/50 border-slate-700/40 text-gray-400 hover:text-white hover:bg-slate-800'
+          }`}
+          title="Линкийг хуулах"
+        >
+          {copied ? (
+            <>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="sm:inline">Хуулагдлаа!</span>
+            </>
+          ) : (
+            <>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+              </svg>
+              <span className="hidden md:inline">Линк хуулах</span>
+            </>
+          )}
+        </button>
+
+        {/* Тоглох / Зогсоох Товчлуур */}
         <button 
           onClick={togglePlay}
-          className={`w-full sm:w-auto px-6 py-2.5 text-sm font-semibold rounded-xl active:scale-95 transition duration-200 flex items-center justify-center gap-2 shadow-lg ${
+          className={`px-5 py-2.5 text-xs md:text-sm font-semibold rounded-xl active:scale-95 transition-all duration-200 flex items-center justify-center gap-2 shadow-lg min-w-[90px] ${
             isPlaying 
               ? 'bg-rose-600 text-white shadow-rose-600/10 hover:bg-rose-500' 
               : 'bg-indigo-600 text-white shadow-indigo-600/20 hover:bg-indigo-500'
@@ -120,7 +197,7 @@ function TrackItem({ msg, currentPlayingId, setCurrentPlayingId }) {
         >
           {isPlaying ? (
             <>
-              <svg className="w-4 h-4 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5 animate-spin text-white" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
@@ -136,7 +213,7 @@ function TrackItem({ msg, currentPlayingId, setCurrentPlayingId }) {
 export default function Admin() {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [currentPlayingId, setCurrentPlayingId] = useState(null); // Яг одоо тоглож буй дууны ID
+  const [currentPlayingId, setCurrentPlayingId] = useState(null);
 
   useEffect(() => {
     const fetchMessages = async () => {
@@ -158,7 +235,7 @@ export default function Admin() {
   }, []);
 
   return (
-    <div className="min-h-screen p-6 md:p-16 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white relative overflow-hidden">
+    <div className="min-h-screen p-4 md:p-16 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white relative overflow-hidden">
       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -177,8 +254,8 @@ export default function Admin() {
         
         {loading ? (
           <div className="flex flex-col gap-4 animate-pulse">
-            <div className="h-20 bg-slate-800/40 rounded-2xl"></div>
-            <div className="h-20 bg-slate-800/40 rounded-2xl"></div>
+            <div className="h-24 bg-slate-800/40 rounded-2xl"></div>
+            <div className="h-24 bg-slate-800/40 rounded-2xl"></div>
           </div>
         ) : (
           <div className="flex flex-col gap-4">
