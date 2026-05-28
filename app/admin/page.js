@@ -86,38 +86,33 @@ function NowPlayingBar({ current, videoId, onPrev, onNext, onStop, hasPrev, hasN
     </div>
   );
 }
-
 function TrackItem({ msg, isNext, queueNumber, onPlayById, onDelete, dragHandleProps, isDragging }) {
   const [videoInfo, setVideoInfo] = useState({ title: msg.description || "Уншиж байна...", thumbnail: "" });
   const [copied, setCopied] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // ✨ Added state to track downloading loader
+  const [downloading, setDownloading] = useState(false);
 
   const videoId = getYouTubeId(msg.url);
 
-useEffect(() => {
-  if (!videoId) {
-    setVideoInfo({ title: msg.description || "Буруу YouTube линк", thumbnail: "" });
-    return;
-  }
-
-  fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(msg.url)}&format=json`)
-    .then(r => { 
-      if (!r.ok) throw new Error(); 
-      return r.json(); 
-    })
-    .then(d => {
-      setVideoInfo({ title: d.title, thumbnail: d.thumbnail_url });
-      if (!msg.title) {
-        setDoc(doc(db, 'messages', msg.id), { 
-          title: d.title, 
-          thumbnail: d.thumbnail_url 
-        }, { merge: true }).catch(console.error);
-      }
-    })
-    .catch(() => {
-      setVideoInfo({ title: msg.description || "Дууны нэр олдсонгүй", thumbnail: "" });
-    });
-}, [msg.url, msg.description, msg.title, msg.id, videoId]); // Added missing dependencies here
+  useEffect(() => {
+    if (!videoId) {
+      setVideoInfo({ title: msg.description || "Буруу YouTube линк", thumbnail: "" });
+      return;
+    }
+    fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(msg.url)}&format=json`)
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+      .then(d => {
+        setVideoInfo({ title: d.title, thumbnail: d.thumbnail_url });
+        if (!msg.title) {
+          setDoc(doc(db, 'messages', msg.id), { 
+            title: d.title, 
+            thumbnail: d.thumbnail_url 
+          }, { merge: true }).catch(console.error);
+        }
+      })
+      .catch(() => setVideoInfo({ title: msg.description || "Дууны нэр олдсонгүй", thumbnail: "" }));
+  }, [msg.url, msg.description, msg.title, msg.id, videoId]);
 
   const handleDelete = async () => {
     if (!confirm('Энэ дууг жагсаалтаас устгах уу?')) return;
@@ -129,6 +124,40 @@ useEffect(() => {
   const handleCopy = async () => {
     try { await navigator.clipboard.writeText(msg.url); setCopied(true); setTimeout(() => setCopied(false), 2000); }
     catch (_) {}
+  };
+
+  // ✨ Safe client-side trigger for downloading files with loading indicator
+  const handleDownload = async (e) => {
+    e.preventDefault(); // Stop standard <a> jump redirect
+    if (downloading) return; // Prevent spam-clicking
+
+    setDownloading(true);
+    try {
+      const response = await fetch(`/api/download?url=${encodeURIComponent(msg.url)}`);
+      
+      if (!response.ok) throw new Error('Download failed');
+
+      // Convert the response to a file blob
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      
+      // Create a temporary hidden link element to download the file nicely
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      // Use the YouTube title as the filename if available
+      a.download = `${videoInfo.title || 'download'}.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      
+      // Cleanup
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      console.error(err);
+      alert('Vercel Timeout: Дууны хэмжээ хэтэрхий том эсвэл сервер амжсангүй. Та дахин оролдоно уу.');
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
@@ -164,10 +193,26 @@ useEffect(() => {
       </div>
 
       <div className="flex items-center gap-1.5 shrink-0">
-        <a href={`/api/download?url=${encodeURIComponent(msg.url)}`} download
-          className="p-2 rounded-xl border text-xs transition-all flex items-center bg-slate-800/50 border-slate-700/40 text-gray-400 hover:text-white hover:bg-slate-800" title="MP3 татах">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-        </a>
+        
+        {/* ✨ UPDATED DOWNLOAD BUTTON WITH LOADER AND DISABLED STATE */}
+        <button 
+          onClick={handleDownload}
+          disabled={downloading}
+          className={`p-2 rounded-xl border text-xs transition-all flex items-center ${
+            downloading 
+              ? 'bg-amber-950/40 border-amber-500/30 text-amber-400 cursor-wait' 
+              : 'bg-slate-800/50 border-slate-700/40 text-gray-400 hover:text-white hover:bg-slate-800'
+          }`} 
+          title="MP3 татах"
+        >
+          {downloading ? (
+            <span className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+          )}
+        </button>
 
         <button onClick={handleCopy}
           className={`p-2 rounded-xl border text-xs transition-all flex items-center ${
@@ -180,7 +225,7 @@ useEffect(() => {
           }
         </button>
 
-        <button onClick={() => onPlayById(msg.id, videoInfo)}
+        <button onClick={() => onPlayById(msg.id)}
           className="px-3 py-2 text-xs font-semibold rounded-xl active:scale-95 transition-all text-white bg-indigo-600 hover:bg-indigo-500 shadow-lg">
           Тоглох
         </button>
