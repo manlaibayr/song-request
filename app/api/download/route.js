@@ -1,67 +1,79 @@
-// app/api/download/route.js
-import { NextResponse } from 'next/server';
-import ytdl from '@distube/ytdl-core';
+import { spawn } from 'child_process';
+import { join } from 'path';
+import { randomUUID } from 'crypto';
+import { stat, unlink } from 'fs/promises';
+import { createReadStream } from 'fs';
+import { Readable } from 'stream';
+
+// webpack bundler-аас гадуур runtime дээр шууд зам тогтооно
+const ytDlpBin = join(process.cwd(), 'node_modules/youtube-dl-exec/bin/yt-dlp');
+const ffmpegBin = join(process.cwd(), 'node_modules/ffmpeg-static/ffmpeg');
+
+function cleanYouTubeUrl(url) {
+  const match = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  if (!match) return url;
+  return `https://www.youtube.com/watch?v=${match[1]}`;
+}
+
+function isValidYouTubeUrl(url) {
+  return /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/.test(url);
+}
+
+function run(bin, args) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(bin, args);
+    let stdout = '';
+    let stderr = '';
+    proc.stdout?.on('data', (d) => (stdout += d));
+    proc.stderr?.on('data', (d) => (stderr += d));
+    proc.on('close', (code) => {
+      if (code === 0) resolve(stdout.trim());
+      else reject(new Error(stderr.trim() || `exit code ${code}`));
+    });
+    proc.on('error', reject);
+  });
+}
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const url = searchParams.get('url');
 
-  if (!url || !ytdl.validateURL(url)) {
-    return NextResponse.json({ error: 'Invalid YouTube URL' }, { status: 400 });
+  if (!url || !isValidYouTubeUrl(url)) {
+    return Response.json({ error: 'Invalid YouTube URL' }, { status: 400 });
   }
 
+  const cleanUrl = cleanYouTubeUrl(url);
+  const tmpPath = `/tmp/${randomUUID()}.mp3`;
+
   try {
-    // Хөтчийн хандалтыг дуурайх Agent үүсгэх
-    const agent = ytdl.createAgent([
-      {
-        identifier: 'chrome',
-        options: {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-          }
-        }
-      }
+    // Title fetch болон download-г дараалан хийнэ (parallel хийхэд race condition гарна)
+    const titleRaw = await run(ytDlpBin, ['--get-title', '--no-playlist', cleanUrl]).catch(() => '');
+    const title = titleRaw.split('\n').pop().replace(/[<>:"/\\|?*]/g, '').trim() || 'audio';
+
+    await run(ytDlpBin, [
+      '--no-playlist',
+      '-x',
+      '--audio-format', 'mp3',
+      '--audio-quality', '192K',
+      '--ffmpeg-location', ffmpegBin,
+      '-o', tmpPath,
+      cleanUrl,
     ]);
 
-    // getInfo функц руу agent болон тодорхой client-уудыг дамжуулах
-    const info = await ytdl.getInfo(url, { 
-      agent,
-      // WEB_CREATOR эсвэл TV_EMBED клиентүүд нь IP хаалтыг тойроход тусалдаг
-      client: 'WEB_CREATOR' 
+    const { size } = await stat(tmpPath);
+    const fileStream = createReadStream(tmpPath);
+    fileStream.on('close', () => unlink(tmpPath).catch(() => {}));
+
+    return new Response(Readable.toWeb(fileStream), {
+      headers: {
+        'Content-Type': 'audio/mpeg',
+        'Content-Disposition': `attachment; filename="${title}.mp3"`,
+        'Content-Length': size.toString(),
+      },
     });
-    
-    // Аудио форматуудыг шүүх
-    const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
-    
-    // Хамгийн боломжит аудиог сонгох
-    const bestAudio = audioFormats.find(f => f.container === 'mp4') || audioFormats[0];
-
-    if (!bestAudio || !bestAudio.url) {
-      // Хэрэв олдохгүй бол арай уян хатан хайлт хийх
-      const anyAudio = info.formats.find(f => f.hasAudio && !f.hasVideo);
-      if (anyAudio && anyAudio.url) {
-        return NextResponse.json({ audioUrl: anyAudio.url });
-      }
-      return NextResponse.json({ error: 'No audio format found' }, { status: 404 });
-    }
-
-    return NextResponse.json({ audioUrl: bestAudio.url });
-
   } catch (error) {
-    console.error('YTDL Error:', error);
-    
-    // Хэрэв WEB_CREATOR дээр алдаа заавал IOS эсвэл ANDROID клиентээр дахин оролдож үзэх backup
-    try {
-      const fallbackInfo = await ytdl.getInfo(url, { client: 'ANDROID' });
-      const fallbackAudio = ytdl.filterFormats(fallbackInfo.formats, 'audioonly')[0];
-      if (fallbackAudio && fallbackAudio.url) {
-        return NextResponse.json({ audioUrl: fallbackAudio.url });
-      }
-    } catch (fallbackError) {
-      console.error('Fallback failed too:', fallbackError);
-    }
-
-    return NextResponse.json({ error: error.message || 'Failed to process video' }, { status: 500 });
+    console.error('Download failed:', error.message);
+    unlink(tmpPath).catch(() => {});
+    return Response.json({ error: error.message }, { status: 500 });
   }
 }

@@ -1,6 +1,6 @@
 "use client";
-import { useState } from 'react';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { useState, useEffect } from 'react';
+import { collection, addDoc, serverTimestamp, onSnapshot, query, orderBy, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
 export default function Home() {
@@ -8,16 +8,26 @@ export default function Home() {
   const [description, setDescription] = useState('');
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
-  
-  // Custom Alert-д зориулсан state
+  const [queueCount, setQueueCount] = useState(0);
+  const [nowPlaying, setNowPlaying] = useState<{ title: string; thumbnail: string; description: string } | null>(null);
+
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Алдаа болон амжилтын мэдэгдэл харуулах функц
+  useEffect(() => {
+    const q = query(collection(db, 'messages'), orderBy('createdAt', 'asc'));
+    const unsub1 = onSnapshot(q, (snap) => setQueueCount(snap.size));
+
+    const unsub2 = onSnapshot(doc(db, 'status', 'nowPlaying'), (snap) => {
+      if (snap.exists()) setNowPlaying(snap.data() as any);
+      else setNowPlaying(null);
+    });
+
+    return () => { unsub1(); unsub2(); };
+  }, []);
+
   const showAlert = (type: 'success' | 'error', message: string) => {
     setAlert({ type, message });
-    setTimeout(() => {
-      setAlert(null);
-    }, 4000); // 4 секундын дараа өөрөө алга болно
+    setTimeout(() => setAlert(null), 5000);
   };
 
   const handleSend = async (e: any) => {
@@ -27,12 +37,17 @@ export default function Home() {
       await addDoc(collection(db, 'messages'), {
         description,
         url,
+        order: Date.now(),
         createdAt: serverTimestamp()
       });
+      const position = queueCount + 1;
+      const positionText = position === 1
+        ? 'Таны дуу дараагийнх! 🎉'
+        : `Таны дуу ${position}-р байранд байна — ${position - 1} дуунаас хойш тоглогдоно 🎵`;
       setIsOpen(false);
       setDescription('');
       setUrl('');
-      showAlert('success', 'Хүсэлтийг амжилттай илгээлээ! 🎉');
+      showAlert('success', positionText);
     } catch (error) {
       console.error("Error adding document: ", error);
       showAlert('error', 'Илгээхэд алдаа гарлаа. Дахин оролдоно уу.');
@@ -57,10 +72,41 @@ export default function Home() {
         <h1 className="text-3xl font-extrabold tracking-tight mb-2 bg-gradient-to-r from-white via-indigo-200 to-indigo-400 bg-clip-text text-transparent">
           Хөгжмийн Захиалга
         </h1>
-        <p className="text-gray-400 text-sm mb-8">
+        <p className="text-gray-400 text-sm mb-3">
           Сонсохыг хүссэн дууныхаа YouTube линкийг тайлбартай нь хамт илгээнэ үү.
         </p>
-        
+        {/* Now Playing card */}
+        {nowPlaying && (
+          <div className="mb-5 bg-indigo-950/60 border border-indigo-500/30 rounded-2xl p-4 flex items-center gap-3 text-left shadow-lg shadow-indigo-500/10">
+            {nowPlaying.thumbnail ? (
+              <img src={nowPlaying.thumbnail} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0 border border-indigo-500/20" />
+            ) : (
+              <div className="w-12 h-12 rounded-xl bg-indigo-900/40 border border-indigo-500/20 shrink-0 flex items-center justify-center">
+                <svg className="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+                </svg>
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-400 flex items-center gap-1.5 mb-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse inline-block" />
+                Одоо тоглож байна
+              </p>
+              <p className="text-sm font-semibold text-white truncate">{nowPlaying.title}</p>
+              {nowPlaying.description && (
+                <p className="text-xs text-gray-400 truncate">💬 {nowPlaying.description}</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {queueCount > 0 && (
+          <p className="text-indigo-400/70 text-xs mb-5">
+            Дараалалд <span className="font-bold text-indigo-300">{queueCount}</span> дуу байна
+          </p>
+        )}
+        {!nowPlaying && queueCount === 0 && <div className="mb-6" />}
+
         <button
           onClick={() => setIsOpen(true)}
           className="w-full sm:w-auto px-8 py-4 bg-indigo-600 text-white font-medium rounded-xl shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 active:scale-98 transition-all duration-200 text-base"
