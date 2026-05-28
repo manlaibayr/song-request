@@ -94,16 +94,30 @@ function TrackItem({ msg, isNext, queueNumber, onPlayById, onDelete, dragHandleP
 
   const videoId = getYouTubeId(msg.url);
 
-  useEffect(() => {
-    if (!videoId) {
-      setVideoInfo({ title: msg.description || "Буруу YouTube линк", thumbnail: "" });
-      return;
-    }
-    fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(msg.url)}&format=json`)
-      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-      .then(d => setVideoInfo({ title: d.title, thumbnail: d.thumbnail_url }))
-      .catch(() => setVideoInfo({ title: msg.description || "Дооны нэр олдсонгүй", thumbnail: "" }));
-  }, [msg.url, msg.description, videoId]);
+useEffect(() => {
+  if (!videoId) {
+    setVideoInfo({ title: msg.description || "Буруу YouTube линк", thumbnail: "" });
+    return;
+  }
+
+  fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(msg.url)}&format=json`)
+    .then(r => { 
+      if (!r.ok) throw new Error(); 
+      return r.json(); 
+    })
+    .then(d => {
+      setVideoInfo({ title: d.title, thumbnail: d.thumbnail_url });
+      if (!msg.title) {
+        setDoc(doc(db, 'messages', msg.id), { 
+          title: d.title, 
+          thumbnail: d.thumbnail_url 
+        }, { merge: true }).catch(console.error);
+      }
+    })
+    .catch(() => {
+      setVideoInfo({ title: msg.description || "Дууны нэр олдсонгүй", thumbnail: "" });
+    });
+}, [msg.url, msg.description, msg.title, msg.id, videoId]); // Added missing dependencies here
 
   const handleDelete = async () => {
     if (!confirm('Энэ дууг жагсаалтаас устгах уу?')) return;
@@ -256,7 +270,15 @@ export default function Admin() {
   const handleNext = () => {
     if (currentIndex >= 0 && currentIndex < messages.length - 1) {
       const next = messages[currentIndex + 1];
-      handlePlayById(next.id, null); // videoInfo will come from oEmbed via Firestore sync
+      
+      // 1. We must fetch the title/thumbnail from the component state, 
+      // or fall back to description/defaults if oEmbed data hasn't been fetched yet.
+      const videoInfo = {
+        title: next.title || "Уншиж байна...",
+        thumbnail: next.thumbnail || "" // If you save thumbnail inside the message document
+      };
+      
+      handlePlayById(next.id, videoInfo); 
     } else {
       handleStop();
     }
@@ -265,7 +287,13 @@ export default function Admin() {
   const handlePrev = () => {
     if (currentIndex > 0) {
       const prev = messages[currentIndex - 1];
-      handlePlayById(prev.id, null);
+      
+      const videoInfo = {
+        title: prev.description || "Уншиж байна...",
+        thumbnail: prev.thumbnail || ""
+      };
+      
+      handlePlayById(prev.id, videoInfo);
     }
   };
 
