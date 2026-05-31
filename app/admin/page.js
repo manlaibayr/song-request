@@ -20,7 +20,7 @@ function getYouTubeId(url) {
 function DragHandle(props) {
   return (
     <div {...props} className="flex flex-col gap-[3px] px-1 cursor-grab active:cursor-grabbing shrink-0 touch-none">
-      {[0,1,2,3,4,5].map(i => (
+      {[0, 1, 2, 3, 4, 5].map(i => (
         <span key={i} className={`block w-1 h-1 rounded-full bg-slate-600 ${i % 2 !== 0 ? 'ml-1.5' : ''}`} />
       ))}
     </div>
@@ -41,7 +41,7 @@ function NowPlayingBar({ current, videoId, onPrev, onNext, onStop, hasPrev, hasN
             key={videoId}
             videoId={videoId}
             opts={{ height: '1', width: '1', playerVars: { autoplay: 1, controls: 0, disablekb: 1, fs: 0 } }}
-            onReady={e => { try { e.target.playVideo(); } catch (_) {} }}
+            onReady={e => { try { e.target.playVideo(); } catch (_) { } }}
             onStateChange={e => {
               if (e.data === 0) hasNext ? onNext() : onStop();
             }}
@@ -70,17 +70,17 @@ function NowPlayingBar({ current, videoId, onPrev, onNext, onStop, hasPrev, hasN
       <div className="flex items-center gap-1 shrink-0">
         <button onClick={onPrev} disabled={!hasPrev} title="Өмнөх"
           className="w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-white hover:bg-slate-800 disabled:opacity-20 disabled:cursor-not-allowed transition-all">
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" /></svg>
         </button>
 
         <button onClick={onStop} title="Зогсоох"
           className="w-9 h-9 flex items-center justify-center rounded-xl bg-rose-600 hover:bg-rose-500 text-white transition-all shadow-lg shadow-rose-600/20">
-          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h12v12H6z" /></svg>
         </button>
 
         <button onClick={onNext} disabled={!hasNext} title="Дараагийнх"
           className="w-9 h-9 flex items-center justify-center rounded-xl text-gray-400 hover:text-white hover:bg-slate-800 disabled:opacity-20 disabled:cursor-not-allowed transition-all">
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zm2.5-6 5.5 3.9V8.1L8.5 12zM16 6h2v12h-2z"/></svg>
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zm2.5-6 5.5 3.9V8.1L8.5 12zM16 6h2v12h-2z" /></svg>
         </button>
       </div>
     </div>
@@ -90,6 +90,7 @@ function TrackItem({ msg, isNext, queueNumber, onPlayById, onDelete, dragHandleP
   const [videoInfo, setVideoInfo] = useState({ title: msg.description || "Уншиж байна...", thumbnail: "" });
   const [copied, setCopied] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   // ✨ Added state to track downloading loader
   const [downloading, setDownloading] = useState(false);
 
@@ -105,9 +106,9 @@ function TrackItem({ msg, isNext, queueNumber, onPlayById, onDelete, dragHandleP
       .then(d => {
         setVideoInfo({ title: d.title, thumbnail: d.thumbnail_url });
         if (!msg.title) {
-          setDoc(doc(db, 'messages', msg.id), { 
-            title: d.title, 
-            thumbnail: d.thumbnail_url 
+          setDoc(doc(db, 'messages', msg.id), {
+            title: d.title,
+            thumbnail: d.thumbnail_url
           }, { merge: true }).catch(console.error);
         }
       })
@@ -115,7 +116,7 @@ function TrackItem({ msg, isNext, queueNumber, onPlayById, onDelete, dragHandleP
   }, [msg.url, msg.description, msg.title, msg.id, videoId]);
 
   const handleDelete = async () => {
-    if (!confirm('Энэ дууг жагсаалтаас устгах уу?')) return;
+    setShowConfirm(false);
     setDeleting(true);
     try { await deleteDoc(doc(db, 'messages', msg.id)); }
     catch (err) { console.error(err); setDeleting(false); }
@@ -123,7 +124,7 @@ function TrackItem({ msg, isNext, queueNumber, onPlayById, onDelete, dragHandleP
 
   const handleCopy = async () => {
     try { await navigator.clipboard.writeText(msg.url); setCopied(true); setTimeout(() => setCopied(false), 2000); }
-    catch (_) {}
+    catch (_) { }
   };
 
   // ✨ Safe client-side trigger for downloading files with loading indicator
@@ -134,13 +135,13 @@ function TrackItem({ msg, isNext, queueNumber, onPlayById, onDelete, dragHandleP
     setDownloading(true);
     try {
       const response = await fetch(`/api/download?url=${encodeURIComponent(msg.url)}`);
-      
+
       if (!response.ok) throw new Error('Download failed');
 
       // Convert the response to a file blob
       const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
-      
+
       // Create a temporary hidden link element to download the file nicely
       const a = document.createElement('a');
       a.href = downloadUrl;
@@ -148,7 +149,7 @@ function TrackItem({ msg, isNext, queueNumber, onPlayById, onDelete, dragHandleP
       a.download = `${videoInfo.title || 'download'}.mp3`;
       document.body.appendChild(a);
       a.click();
-      
+
       // Cleanup
       document.body.removeChild(a);
       window.URL.revokeObjectURL(downloadUrl);
@@ -161,15 +162,42 @@ function TrackItem({ msg, isNext, queueNumber, onPlayById, onDelete, dragHandleP
   };
 
   return (
-    <div className={`group relative backdrop-blur-md p-4 rounded-2xl border flex flex-row items-center gap-3 transition-all duration-200 ${
-      isDragging ? 'opacity-40 scale-[0.98]' : ''
-    } ${isNext ? 'bg-slate-900/60 border-emerald-500/30' : 'bg-slate-900/60 border-slate-800 hover:border-slate-700/60'}`}>
+    <div className={`group relative backdrop-blur-md p-4 rounded-2xl border flex flex-row items-center gap-3 transition-all duration-200 ${isDragging ? 'opacity-40 scale-[0.98]' : ''
+      } ${isNext ? 'bg-slate-900/60 border-emerald-500/30' : 'bg-slate-900/60 border-slate-800 hover:border-slate-700/60'}`}>
+
+      {/* Custom Delete Confirmation Overlay */}
+      {showConfirm && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl overflow-hidden" style={{ animation: 'fadeIn 0.15s ease-out' }}>
+          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm" onClick={() => setShowConfirm(false)} />
+          <div className="relative z-10 flex items-center gap-4 px-5 py-3">
+            <div className="w-9 h-9 rounded-full bg-rose-500/15 border border-rose-500/30 flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </div>
+            <p className="text-sm text-gray-300 font-medium">Устгах уу?</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="px-3.5 py-1.5 text-xs font-medium text-gray-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 border border-slate-700/50 rounded-lg transition-all"
+              >
+                Цуцлах
+              </button>
+              <button
+                onClick={handleDelete}
+                className="px-3.5 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-lg transition-all shadow-lg shadow-rose-600/20 active:scale-95"
+              >
+                Устгах
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <DragHandle {...dragHandleProps} />
 
-      <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border ${
-        isNext ? 'bg-emerald-600/20 border-emerald-500/50 text-emerald-400' : 'bg-slate-800/60 border-slate-700/40 text-gray-500'
-      }`}>
+      <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border ${isNext ? 'bg-emerald-600/20 border-emerald-500/50 text-emerald-400' : 'bg-slate-800/60 border-slate-700/40 text-gray-500'
+        }`}>
         {queueNumber}
       </div>
 
@@ -193,16 +221,15 @@ function TrackItem({ msg, isNext, queueNumber, onPlayById, onDelete, dragHandleP
       </div>
 
       <div className="flex items-center gap-1.5 shrink-0">
-        
+
         {/* ✨ UPDATED DOWNLOAD BUTTON WITH LOADER AND DISABLED STATE */}
-        <button 
+        <button
           onClick={handleDownload}
           disabled={downloading}
-          className={`p-2 rounded-xl border text-xs transition-all flex items-center ${
-            downloading 
-              ? 'bg-amber-950/40 border-amber-500/30 text-amber-400 cursor-wait' 
-              : 'bg-slate-800/50 border-slate-700/40 text-gray-400 hover:text-white hover:bg-slate-800'
-          }`} 
+          className={`p-2 rounded-xl border text-xs transition-all flex items-center ${downloading
+            ? 'bg-amber-950/40 border-amber-500/30 text-amber-400 cursor-wait'
+            : 'bg-slate-800/50 border-slate-700/40 text-gray-400 hover:text-white hover:bg-slate-800'
+            }`}
           title="MP3 татах"
         >
           {downloading ? (
@@ -215,22 +242,21 @@ function TrackItem({ msg, isNext, queueNumber, onPlayById, onDelete, dragHandleP
         </button>
 
         <button onClick={handleCopy}
-          className={`p-2 rounded-xl border text-xs transition-all flex items-center ${
-            copied ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400'
-                   : 'bg-slate-800/50 border-slate-700/40 text-gray-400 hover:text-white hover:bg-slate-800'
-          }`}>
+          className={`p-2 rounded-xl border text-xs transition-all flex items-center ${copied ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400'
+            : 'bg-slate-800/50 border-slate-700/40 text-gray-400 hover:text-white hover:bg-slate-800'
+            }`}>
           {copied
             ? <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
             : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
           }
         </button>
 
-        <button onClick={() => onPlayById(msg.id)}
+        <button onClick={() => onPlayById(msg.id, videoInfo)}
           className="px-3 py-2 text-xs font-semibold rounded-xl active:scale-95 transition-all text-white bg-indigo-600 hover:bg-indigo-500 shadow-lg">
           Тоглох
         </button>
 
-        <button onClick={handleDelete} disabled={deleting}
+        <button onClick={() => setShowConfirm(true)} disabled={deleting}
           className="p-2 rounded-xl border text-xs transition-all flex items-center bg-slate-800/50 border-slate-700/40 text-gray-400 hover:text-rose-400 hover:bg-rose-950/30 hover:border-rose-500/30 disabled:opacity-40">
           {deleting
             ? <span className="w-4 h-4 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
@@ -290,24 +316,22 @@ export default function Admin() {
 
   const handlePlayById = async (id, videoInfo) => {
     setCurrentPlayingId(id);
-    if (videoInfo) {
-      const msg = messages.find(m => m.id === id);
-      try {
-        await setDoc(doc(db, 'status', 'nowPlaying'), {
-          id,
-          title: videoInfo.title,
-          thumbnail: videoInfo.thumbnail,
-          url: msg?.url || '',
-          description: msg?.description || '',
-        });
-      } catch (err) { console.error(err); }
-    }
+    const msg = messages.find(m => m.id === id);
+    try {
+      await setDoc(doc(db, 'status', 'nowPlaying'), {
+        id,
+        title: videoInfo?.title || msg?.title || msg?.description || 'Тодорхойгүй дуу',
+        thumbnail: videoInfo?.thumbnail || msg?.thumbnail || '',
+        url: msg?.url || '',
+        description: msg?.description || '',
+      });
+    } catch (err) { console.error(err); }
   };
 
   const handleStop = async () => {
     setCurrentPlayingId(null);
     setNowPlayingInfo(null);
-    try { await deleteDoc(doc(db, 'status', 'nowPlaying')); } catch (_) {}
+    try { await deleteDoc(doc(db, 'status', 'nowPlaying')); } catch (_) { }
   };
 
   const currentIndex = messages.findIndex(m => m.id === currentPlayingId);
@@ -315,15 +339,11 @@ export default function Admin() {
   const handleNext = () => {
     if (currentIndex >= 0 && currentIndex < messages.length - 1) {
       const next = messages[currentIndex + 1];
-      
-      // 1. We must fetch the title/thumbnail from the component state, 
-      // or fall back to description/defaults if oEmbed data hasn't been fetched yet.
       const videoInfo = {
-        title: next.title || "Уншиж байна...",
-        thumbnail: next.thumbnail || "" // If you save thumbnail inside the message document
+        title: next.title || next.description || "Уншиж байна...",
+        thumbnail: next.thumbnail || ""
       };
-      
-      handlePlayById(next.id, videoInfo); 
+      handlePlayById(next.id, videoInfo);
     } else {
       handleStop();
     }
@@ -332,12 +352,10 @@ export default function Admin() {
   const handlePrev = () => {
     if (currentIndex > 0) {
       const prev = messages[currentIndex - 1];
-      
       const videoInfo = {
-        title: prev.description || "Уншиж байна...",
+        title: prev.title || prev.description || "Уншиж байна...",
         thumbnail: prev.thumbnail || ""
       };
-      
       handlePlayById(prev.id, videoInfo);
     }
   };
